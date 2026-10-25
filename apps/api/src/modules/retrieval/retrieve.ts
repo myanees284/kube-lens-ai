@@ -2,7 +2,7 @@ import type { Document } from "mongodb";
 import type { EmbeddingProvider } from "../embeddings/provider.ts";
 import type { IncidentDocument, KubernetesDocDocument } from "../persistence/types.ts";
 import { safeErrorMessage } from "../evidence/sanitize.ts";
-import { decideIncidentMatch, type RetrievalDecision, type RetrievalStatus } from "./decide.ts";
+import { selectHistoricalIncident, type RetrievalDecision, type RetrievalStatus } from "./decide.ts";
 import { reciprocalRankFusion } from "./rrf.ts";
 
 export interface IncidentHit {
@@ -78,15 +78,14 @@ export async function retrieveKnowledge(input: {
     const documentRanks = reciprocalRankFusion([ids(docKeyword), ids(docVector)], input.rrfK);
     const incidentHits = fuse(incidentKeyword, incidentVector, incidentRanks).map(toIncidentHit);
     const documentHits = fuse(docKeyword, docVector, documentRanks).map(toDocumentHit);
-    const top = incidentHits[0];
-    const decision = decideIncidentMatch({
-      searchFailed: false,
-      score: top?.score ?? null,
-      incidentErrorTokens: top?.errorTokens ?? [],
-      observedErrorTokens: input.observedErrorTokens,
-      minScore: input.minScore,
-    });
-    return { ...decision, incidents: incidentHits, documents: documentHits };
+    const selected = selectHistoricalIncident(incidentHits, input.observedErrorTokens, input.minScore);
+    const incidents = selected ? [selected, ...incidentHits.filter((hit) => hit.id !== selected.id)] : incidentHits;
+    return {
+      status: "completed",
+      decision: selected ? "historical_match" : "groq_fallback",
+      incidents,
+      documents: documentHits,
+    };
   } catch (error) {
     return unavailable(safeErrorMessage(error));
   }

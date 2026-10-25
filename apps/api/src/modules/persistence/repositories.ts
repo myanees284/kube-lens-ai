@@ -202,6 +202,34 @@ export async function failInterruptedInvestigations(db: Db): Promise<number> {
   return result.modifiedCount;
 }
 
+export async function findIngestedIncident(db: Db, investigationId: ObjectId): Promise<ObjectId | null> {
+  const existing = await incidents(db).findOne({ "source.investigationId": investigationId }, { projection: { _id: 1 } });
+  return existing?._id ?? null;
+}
+
+export async function saveIngestedIncident(
+  db: Db,
+  input: Omit<IncidentDocument, "_id" | "createdAt" | "updatedAt">,
+): Promise<{ id: ObjectId; created: boolean }> {
+  const investigationId = input.source.investigationId;
+  if (!investigationId) throw new Error("Ingested incident is missing its investigation.");
+  const existing = await findIngestedIncident(db, investigationId);
+  if (existing) return { id: existing, created: false };
+  const now = new Date();
+  const document: IncidentDocument = { ...input, _id: new ObjectId(), createdAt: now, updatedAt: now };
+  try {
+    await incidents(db).insertOne(document);
+    return { id: document._id, created: true };
+  } catch (error) {
+    if (!isDuplicateKey(error)) throw error;
+    const saved =
+      (await findIngestedIncident(db, investigationId)) ??
+      (await incidents(db).findOne({ contentHash: input.contentHash }, { projection: { _id: 1 } }))?._id;
+    if (saved) return { id: saved, created: false };
+    throw error;
+  }
+}
+
 export async function upsertIncident(
   db: Db,
   input: Omit<IncidentDocument, "_id" | "createdAt" | "updatedAt">,
@@ -227,6 +255,10 @@ export async function upsertKubernetesDoc(
     { $set: { ...input, updatedAt: now }, $setOnInsert: { createdAt: now } },
     { upsert: true },
   );
+}
+
+function isDuplicateKey(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === 11000;
 }
 
 function objectIds(ids: string[]): ObjectId[] {

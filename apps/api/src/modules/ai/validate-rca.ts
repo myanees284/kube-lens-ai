@@ -11,9 +11,10 @@ export function validateGroqRca(
   const rootCause = text(record.rootCause);
   if (!summary || !rootCause) return { ok: false, reason: "summary and rootCause must be non-empty strings." };
   if (!Array.isArray(record.recommendations)) return { ok: false, reason: "recommendations must be an array." };
-  if (!Array.isArray(record.limitations)) return { ok: false, reason: "limitations must be an array." };
+  const limitationItems = limitationList(record.limitations);
+  if (!limitationItems) return { ok: false, reason: "limitations must be an array." };
 
-  const limitations = record.limitations.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const limitations = limitationItems.filter((item) => item.trim().length > 0);
   const cited = new Set<string>();
   let droppedRef = false;
   const recommendations = record.recommendations.flatMap((item) => {
@@ -47,6 +48,12 @@ export function validateGroqRca(
       ],
     },
   };
+}
+
+function limitationList(value: unknown): string[] | null {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  if (typeof value === "string" && value.trim().length > 0) return [value.trim()];
+  return null;
 }
 
 function parseJson(value: string): unknown {

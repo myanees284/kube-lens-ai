@@ -8,6 +8,7 @@ export interface InvestigationDocument {
   schemaVersion: 1;
   question: string;
   scope?: {
+    context?: string;
     namespace?: string;
     resourceKind?: string;
     resourceName?: string;

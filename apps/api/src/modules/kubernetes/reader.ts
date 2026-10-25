@@ -30,11 +30,17 @@ interface CoreReader {
   }): Promise<string>;
 }
 
-export function createKubeconfigReader(): ClusterReader {
-  const config = new KubeConfig();
-  config.loadFromDefault();
+export function createKubeconfigReader(contextName?: string): ClusterReader {
+  const config = loadKubeConfig(contextName);
   const context = config.getCurrentContext();
   return createClusterReader(config.makeApiClient(CoreV1Api), context || undefined);
+}
+
+export function loadKubeConfig(contextName?: string): KubeConfig {
+  const config = new KubeConfig();
+  config.loadFromDefault();
+  if (contextName) config.setCurrentContext(contextName);
+  return config;
 }
 
 export function createClusterReader(core: CoreReader, contextLabel?: string): ClusterReader {

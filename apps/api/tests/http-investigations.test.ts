@@ -180,7 +180,7 @@ describe("investigation http api", () => {
       method: "POST",
       url: "/api/v1/investigations",
       headers: { "x-api-key": testApiKey, "content-type": "application/json" },
-      payload: { question: "Why is book-orders failing?", scope: { namespace: "book-prod" } },
+      payload: { question: "Why is book-orders in ImagePullBackOff? token=super-secret-value", scope: { namespace: "book-prod" } },
     });
     await api.whenIdle();
     const id = created.json<{ investigationId: string }>().investigationId;
@@ -206,7 +206,11 @@ describe("investigation http api", () => {
     expect(second.json()).toMatchObject({ incidentId, status: "succeeded" });
     expect(incident.statusCode).toBe(200);
     expect(incident.body).not.toContain("embedding");
-    expect(incident.json()).toMatchObject({ source: { type: "investigation_ingestion", investigationId: id } });
+    expect(incident.json()).toMatchObject({
+      source: { type: "investigation_ingestion", investigationId: id },
+      symptoms: { errorTokens: ["ImagePullBackOff"] },
+    });
+    expect(incident.body).not.toContain("super-secret-value");
   });
 
   it("rejects ingestion when the investigation has no RCA", async () => {

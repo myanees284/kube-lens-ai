@@ -50,8 +50,8 @@ for (const check of checks) {
   if (!result.documents.some((item) => item.title === check.documentTitle)) {
     failures.push(`${check.label} did not retrieve the expected document.`);
   }
-  if (result.decision === "historical_match") {
-    failures.push(`${check.label} selected a historical RCA before the threshold is calibrated.`);
+  if (result.decision !== "historical_match" || result.incidents[0]?.title !== check.incidentTitle) {
+    failures.push(`${check.label} did not select the stored incident with the matching failure token.`);
   }
 }
 

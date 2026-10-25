@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import type { InvestigationResponse, InvestigationScope, KubernetesEvidence, RcaResult } from "@kube-lens/contracts";
+import { prepareIncident } from "../ingestion/prepare.ts";
 import type { IncidentView, InvestigationApi } from "./api.ts";
 import { encodeCursor, type StoredEvent } from "./sse.ts";
 
@@ -116,14 +117,21 @@ export function createMemoryInvestigationApi(options?: {
       if ((record.status !== "completed" && record.status !== "partial") || !record.rca) {
         return { kind: "conflict", message: "The investigation does not have a usable RCA to save." };
       }
+      const prepared = prepareIncident({
+        question: record.question,
+        ...(record.evidence ? { evidence: record.evidence } : {}),
+        rca: record.rca,
+        ...(record.scope?.resourceKind ? { resourceKind: record.scope.resourceKind } : {}),
+      });
+      if (!prepared.ok) return { kind: "conflict", message: prepared.message };
       const incidentId = new ObjectId().toHexString();
       const now = new Date().toISOString();
       incidents.set(incidentId, {
         incidentId,
-        title: record.question,
-        problemSummary: record.rca.summary,
-        symptoms: { errorTokens: [], logPatterns: [], resourceKinds: [], relevantSignals: [] },
-        rca: { summary: record.rca.summary, details: record.rca.rootCause, recommendedActions: record.rca.recommendations.map((item) => ({ text: item.text, ...(item.rationale ? { rationale: item.rationale } : {}) })) },
+        title: prepared.incident.title,
+        problemSummary: prepared.incident.problemSummary,
+        symptoms: prepared.incident.symptoms,
+        rca: prepared.incident.rca,
         source: { type: "investigation_ingestion", investigationId: record.id },
         createdAt: now,
         updatedAt: now,

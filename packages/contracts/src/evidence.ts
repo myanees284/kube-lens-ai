@@ -15,6 +15,7 @@ export const observationSeveritySchema = Type.Union([
 ]);
 
 export const investigationScopeSchema = Type.Object({
+  context: Type.Optional(Type.String({ minLength: 1, maxLength: 253 })),
   namespace: Type.Optional(Type.String({ minLength: 1, maxLength: 253 })),
   resourceKind: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
   resourceName: Type.Optional(Type.String({ minLength: 1, maxLength: 253 })),

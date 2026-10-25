@@ -8,32 +8,31 @@ import { createLocalEmbeddingProvider, type EmbeddingProvider } from "../embeddi
 import { collectEvidence } from "../evidence/collect.ts";
 import { safeErrorMessage } from "../evidence/sanitize.ts";
 import { createKubeconfigReader } from "../kubernetes/reader.ts";
-import type { ClusterReader } from "../kubernetes/types.ts";
 import {
   appendInvestigationEvent,
   createInvestigation,
+  findIngestedIncident,
   getIncident,
   getInvestigation,
   incidents,
   kubernetesDocs,
   listInvestigations,
   saveInvestigationResult,
+  saveIngestedIncident,
   setInvestigationIngestion,
   updateInvestigationStage,
   updateInvestigationStatus,
-  upsertIncident,
 } from "../persistence/repositories.ts";
 import type { InvestigationDocument } from "../persistence/types.ts";
+import { prepareIncident } from "../ingestion/prepare.ts";
 import { retrieveKnowledge } from "../retrieval/retrieve.ts";
 import type { IncidentView, InvestigationApi } from "./api.ts";
-import { buildRetrievalQuery } from "./query.ts";
 import { encodeCursor, type StoredEvent } from "./sse.ts";
 import { runInvestigation, type InvestigationStore } from "./workflow.ts";
 
 export function createLiveInvestigationApi(config: AppConfig, db: Db): InvestigationApi {
   const listeners = new Map<string, Set<(event: StoredEvent) => void>>();
   let embeddings: Promise<EmbeddingProvider> | undefined;
-  let reader: ClusterReader | undefined;
   const store = mongoStore(db, config.maxTimelineEvents, (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
   });
@@ -49,7 +48,7 @@ export function createLiveInvestigationApi(config: AppConfig, db: Db): Investiga
         store,
         collect: async () => {
           const collected = await collectEvidence({
-            reader: clusterReader(),
+            reader: createKubeconfigReader(input.scope?.context),
             scope: input.scope ?? {},
             defaultNamespace: config.defaultNamespace,
             limits: {
@@ -121,41 +120,44 @@ export function createLiveInvestigationApi(config: AppConfig, db: Db): Investiga
     async ingest(id) {
       const document = await getInvestigation(db, id);
       if (!document) return { kind: "missing" };
-      if (document.ingestion.status === "succeeded" && document.ingestion.incidentId) {
-        return { kind: "exists", incidentId: document.ingestion.incidentId.toHexString() };
+      const alreadySaved = await findIngestedIncident(db, document._id);
+      if (alreadySaved) {
+        await setInvestigationIngestion(db, id, { status: "succeeded", incidentId: alreadySaved });
+        return { kind: "exists", incidentId: alreadySaved.toHexString() };
       }
       if ((document.status !== "completed" && document.status !== "partial") || !document.rca) {
         return { kind: "conflict", message: "The investigation does not have a usable RCA to save." };
       }
+      const prepared = prepareIncident({
+        question: document.question,
+        ...(document.evidence ? { evidence: document.evidence } : {}),
+        rca: document.rca,
+        ...(document.scope?.resourceKind ? { resourceKind: document.scope.resourceKind } : {}),
+      });
+      if (!prepared.ok) return { kind: "conflict", message: prepared.message };
       try {
         const provider = await embeddingProvider();
-        const text = [document.question, document.rca.summary, document.rca.rootCause].join("\n");
-        const vectors = await provider.embed([text]);
+        const vectors = await provider.embed([prepared.incident.searchText]);
         const embedding = vectors[0];
         if (!embedding || embedding.length !== config.embeddingDimensions) {
           throw new Error("Embedding provider returned a vector that does not match the configured dimensions.");
         }
-        const observed = document.evidence ? buildRetrievalQuery(document.question, document.evidence).observedErrorTokens : [];
-        const incidentId = await upsertIncident(db, {
+        const saved = await saveIngestedIncident(db, {
           schemaVersion: 1,
           status: "active",
-          title: document.question.slice(0, 180),
-          problemSummary: document.rca.summary,
-          symptoms: { errorTokens: observed, logPatterns: [], resourceKinds: document.scope?.resourceKind ? [document.scope.resourceKind] : [], relevantSignals: [] },
-          rca: {
-            summary: document.rca.summary,
-            details: document.rca.rootCause,
-            recommendedActions: document.rca.recommendations.map((item) => ({ text: item.text, ...(item.rationale ? { rationale: item.rationale } : {}) })),
-          },
-          evidenceSummary: document.evidence?.summary ?? document.rca.summary,
+          title: prepared.incident.title,
+          problemSummary: prepared.incident.problemSummary,
+          symptoms: prepared.incident.symptoms,
+          rca: prepared.incident.rca,
+          evidenceSummary: prepared.incident.evidenceSummary,
           source: { type: "investigation_ingestion", investigationId: document._id, ingestedAt: new Date() },
           embedding,
           embeddingModel: provider.modelId(),
           embeddingDimensions: config.embeddingDimensions,
-          contentHash: createHash("sha256").update(text).digest("hex"),
+          contentHash: createHash("sha256").update(prepared.incident.searchText).digest("hex"),
         });
-        await setInvestigationIngestion(db, id, { status: "succeeded", incidentId });
-        return { kind: "created", incidentId: incidentId.toHexString() };
+        await setInvestigationIngestion(db, id, { status: "succeeded", incidentId: saved.id });
+        return { kind: saved.created ? "created" : "exists", incidentId: saved.id.toHexString() };
       } catch (error) {
         await setInvestigationIngestion(db, id, { status: "failed" });
         return { kind: "failed", message: safeErrorMessage(error) };
@@ -167,11 +169,6 @@ export function createLiveInvestigationApi(config: AppConfig, db: Db): Investiga
       return toIncidentView(document);
     },
   };
-
-  function clusterReader(): ClusterReader {
-    reader ??= createKubeconfigReader();
-    return reader;
-  }
 
   function embeddingProvider(): Promise<EmbeddingProvider> {
     embeddings ??= createLocalEmbeddingProvider({ model: config.embeddingModel, dimensions: config.embeddingDimensions });

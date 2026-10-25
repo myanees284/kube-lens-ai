@@ -10,11 +10,30 @@ import {
 } from "@kube-lens/contracts";
 import type { AppConfig } from "../config/env.ts";
 import { ApiError } from "../http/api-error.ts";
+import { knownContext, listClusterNamespaces, listClusterResourceNames, listKubeClusters } from "../modules/kubernetes/clusters.ts";
 import { resolveCollectionScope } from "../modules/evidence/scope.ts";
 import type { InvestigationApi } from "../modules/investigation/api.ts";
 import { decodeCursor, formatHeartbeat, formatHistoryGap, formatSse, isTerminalEvent, parseLastEventId, selectReplay, type StoredEvent } from "../modules/investigation/sse.ts";
 
 export function registerInvestigationRoutes(app: FastifyInstance, config: AppConfig, api: InvestigationApi): void {
+  app.get("/api/v1/clusters", async () => ({ clusters: await listKubeClusters() }));
+
+  app.get("/api/v1/clusters/:context/namespaces", async (request) => {
+    const context = contextParam(request.params);
+    return { namespaces: await listClusterNamespaces(context) };
+  });
+
+  app.get("/api/v1/clusters/:context/resources", async (request) => {
+    const context = contextParam(request.params);
+    const query = request.query as { namespace?: unknown; kind?: unknown };
+    const namespace = typeof query.namespace === "string" ? query.namespace.trim() : "";
+    const kind = query.kind === "Service" ? "Service" : "Pod";
+    if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace)) {
+      throw new ApiError(400, "INVALID_REQUEST", "namespace is required.");
+    }
+    return { names: await listClusterResourceNames(context, namespace, kind) };
+  });
+
   app.post(
     "/api/v1/investigations",
     { schema: { body: createInvestigationRequestSchema, response: { 202: createInvestigationResponseSchema } } },
@@ -135,6 +154,12 @@ export function registerInvestigationRoutes(app: FastifyInstance, config: AppCon
     }
     return reply.status(404).send({ message: "Not found.", statusCode: 404 });
   });
+}
+
+function contextParam(params: unknown): string {
+  const context = typeof params === "object" && params !== null && "context" in params && typeof params.context === "string" ? params.context : "";
+  if (!knownContext(context)) throw new ApiError(404, "CLUSTER_UNAVAILABLE", "The cluster was not found in the local kubeconfig.");
+  return context;
 }
 
 function isTerminalStatus(status: string): boolean {

@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kube-lens-ai</title>
+    <script>
+      try {
+        if (localStorage.getItem("kube-lens-theme") === "light") {
+          document.documentElement.dataset.theme = "light";
+        }
+      } catch {
+        /* keep the default dark theme when storage is unavailable */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

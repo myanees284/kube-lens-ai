@@ -49,6 +49,22 @@ describe("validateGroqRca", () => {
     expect(result.rca.limitations.join(" ")).toContain("not in the collected evidence");
     expect(result.rca.references.map((reference) => reference.id)).toEqual(["doc-1", "E1"]);
   });
+
+  it("accepts a single limitations string from the model", () => {
+    const result = validateGroqRca(
+      {
+        summary: "The probe path is missing.",
+        rootCause: "The liveness probe requests a path nginx does not serve.",
+        recommendations: [{ text: "Point the probe at a path that returns success." }],
+        limitations: "The pod spec was not included.",
+      },
+      { observationIds: new Set(["E1"]), documentIds: [] },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.rca.limitations).toEqual(["The pod spec was not included."]);
+  });
 });
 
 describe("completeRca", () => {

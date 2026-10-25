@@ -13,6 +13,7 @@
     "setup-mongodb": "node --experimental-strip-types --env-file=../../.env src/scripts/setup-mongodb.ts",
     "seed-knowledge": "node --experimental-strip-types --env-file=../../.env src/scripts/seed-knowledge.ts",
     "retrieve-check": "node --experimental-strip-types --env-file=../../.env src/scripts/retrieve-check.ts",
+    "ingest-check": "node --experimental-strip-types --env-file=../../.env src/scripts/ingest-check.ts",
     "start": "node --env-file-if-exists=../../.env dist/server.js"
   },
   "dependencies": {

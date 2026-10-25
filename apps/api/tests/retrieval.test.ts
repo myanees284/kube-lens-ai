@@ -27,11 +27,23 @@ describe("decideIncidentMatch", () => {
     });
   });
 
-  it("keeps an uncalibrated threshold from selecting a historical RCA", () => {
-    expect(decideIncidentMatch({ searchFailed: false, score: 0.9, incidentErrorTokens: ["OOMKilled"], observedErrorTokens: ["OOMKilled"], minScore: null })).toEqual({
+  it("uses a stored incident when the observed failure token agrees", () => {
+    expect(decideIncidentMatch({ searchFailed: false, score: 0.03, incidentErrorTokens: ["OOMKilled"], observedErrorTokens: ["OOMKilled", "CrashLoopBackOff"], minScore: null })).toEqual({
       status: "completed",
-      decision: "groq_fallback",
+      decision: "historical_match",
     });
+  });
+
+  it("does not select a stored incident that only shares CrashLoopBackOff", () => {
+    expect(
+      decideIncidentMatch({
+        searchFailed: false,
+        score: 0.9,
+        incidentErrorTokens: ["CrashLoopBackOff", "Unhealthy"],
+        observedErrorTokens: ["OOMKilled", "CrashLoopBackOff"],
+        minScore: null,
+      }),
+    ).toEqual({ status: "completed", decision: "groq_fallback" });
   });
 
   it("rejects a similar incident whose error tokens conflict", () => {
