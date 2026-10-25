@@ -1,0 +1,25 @@
+{
+  "name": "kube-lens-ai",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @kube-lens/contracts build && pnpm --parallel --filter @kube-lens/api --filter @kube-lens/web dev",
+    "dev:api": "pnpm --filter @kube-lens/contracts build && pnpm --filter @kube-lens/api dev",
+    "dev:web": "pnpm --filter @kube-lens/web dev",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.0",
+    "globals": "^16.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}

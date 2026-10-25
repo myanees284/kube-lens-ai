@@ -1,0 +1,366 @@
+{
+  "info": {
+    "name": "kube-lens-ai — Phase 4",
+    "description": "Local API through Phase 4. `/healthz` is public. Every `/api` path requires `X-API-Key`.\n\nSet `baseUrl` to the API origin (default `http://127.0.0.1:3001`) and `apiKey` to the same value as `APP_API_KEY` in `.env`. Create an investigation before using the saved `investigationId`. `GROQ_API_KEY` is still a local stand-in, so a live investigation that misses the knowledge base records a Groq failure instead of a generated RCA.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3001"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "investigationId",
+      "value": ""
+    },
+    {
+      "key": "incidentId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /healthz",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('body is the public liveness payload', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({ status: 'ok' });",
+                  "});",
+                  "",
+                  "pm.test('response does not reveal configuration', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/mongo|groq|api-key|APP_API_KEY/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": ["{{baseUrl}}"],
+              "path": ["healthz"]
+            },
+            "description": "Unauthenticated process liveness. Must not return secrets, cluster data, or configuration."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "API key",
+      "item": [
+        {
+          "name": "GET /api/v1/investigations without a key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('error code is UNAUTHORIZED', function () {",
+                  "    pm.expect(body.error.code).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.error.message).to.eql('Unauthorized.');",
+                  "    pm.expect(body.error.requestId).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations"]
+            },
+            "description": "A missing `X-API-Key` is rejected before routing. The body uses the shared error envelope and does not echo the configured key."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/investigations with the wrong key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('error code is UNAUTHORIZED', function () {",
+                  "    pm.expect(body.error.code).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.error.message).to.eql('Unauthorized.');",
+                  "});",
+                  "",
+                  "pm.test('response does not echo the supplied key', function () {",
+                  "    pm.expect(pm.response.text()).to.not.include('not-the-configured-key');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "not-the-configured-key",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations"]
+            },
+            "description": "A key that does not match `APP_API_KEY` returns the same generic 401 as a missing key."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/investigations with the configured key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('apiKey collection variable is set', function () {",
+                  "    pm.expect(pm.variables.get('apiKey'), 'Set apiKey to APP_API_KEY').to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('body is a page of summaries', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.items).to.be.an('array');",
+                  "    pm.expect(body.nextCursor === null || typeof body.nextCursor === 'string').to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations"]
+            },
+            "description": "A matching key lists investigation summaries. The page does not include evidence blobs."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Investigations",
+      "item": [
+        {
+          "name": "POST /api/v1/investigations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('response is a queued investigation', function () {",
+                  "    pm.expect(body.status).to.eql('queued');",
+                  "    pm.expect(body.investigationId).to.match(/^[a-f0-9]{24}$/i);",
+                  "    pm.expect(body.links.self).to.eql('/api/v1/investigations/' + body.investigationId);",
+                  "    pm.expect(body.links.events).to.eql('/api/v1/investigations/' + body.investigationId + '/events');",
+                  "    pm.collectionVariables.set('investigationId', body.investigationId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-API-Key", "value": "{{apiKey}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Why is book-orders in ImagePullBackOff?\",\n  \"scope\": {\n    \"namespace\": \"book-prod\",\n    \"resourceKind\": \"Pod\",\n    \"resourceName\": \"book-orders\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations"]
+            },
+            "description": "Creates an investigation and starts the workflow. The response returns before collection finishes. A namespace is required."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/investigations/:id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('body matches the saved investigation', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.investigationId).to.eql(pm.collectionVariables.get('investigationId'));",
+                  "    pm.expect(body.question).to.be.a('string');",
+                  "    pm.expect(body.ingestion.status).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{apiKey}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations/{{investigationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations", "{{investigationId}}"]
+            },
+            "description": "Reads the current status. A finished investigation includes sanitized evidence, retrieval, and the RCA when one exists."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/investigations/:id/events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{apiKey}}", "type": "text" },
+              { "key": "Accept", "value": "text/event-stream", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations/{{investigationId}}/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations", "{{investigationId}}", "events"]
+            },
+            "description": "Server-sent progress. Send Last-Event-ID as `<investigationId>:<sequence>` to replay only newer retained events. The stream closes after a terminal event."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/v1/investigations/:id/ingest",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201 for a new incident or 200 when it already exists', function () {",
+                  "    pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test('response names the saved incident', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('succeeded');",
+                  "    pm.expect(body.incidentId).to.match(/^[a-f0-9]{24}$/i);",
+                  "    pm.collectionVariables.set('incidentId', body.incidentId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-API-Key", "value": "{{apiKey}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/investigations/{{investigationId}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "investigations", "{{investigationId}}", "ingest"]
+            },
+            "description": "Saves the persisted RCA as incident knowledge. A running investigation, or one without an RCA, returns 409."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/v1/knowledge/incidents/:id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('incident view hides embeddings', function () {",
+                  "    pm.expect(pm.response.text()).to.not.include('embedding');",
+                  "    pm.expect(pm.response.json().incidentId).to.eql(pm.collectionVariables.get('incidentId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-API-Key", "value": "{{apiKey}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge/incidents/{{incidentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "knowledge", "incidents", "{{incidentId}}"]
+            },
+            "description": "Reads a stored incident and its provenance. Embedding vectors are not returned."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
